@@ -1,3 +1,4 @@
 /target
 .env*
 test_*.png
+.DS_Store

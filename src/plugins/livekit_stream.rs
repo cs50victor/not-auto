@@ -16,7 +16,7 @@ use livekit::webrtc::{
     video_source::{RtcVideoSource, VideoResolution},
 };
 use std::sync::Arc;
-use async_channel::{unbounded, Sender, Receiver};
+use async_channel::{unbounded, Sender};
 
 use crate::plugins::image_copy::FrameData;
 

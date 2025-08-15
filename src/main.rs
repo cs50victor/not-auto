@@ -16,11 +16,13 @@ use bevy::render::mesh::{Mesh, Mesh3d};
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureUsages};
 use bevy::render::renderer::RenderDevice;
 use bevy::render::settings::Backends;
+use bevy::render::view::Msaa;
 use bevy::time::Time;
 use bevy::transform::components::Transform;
 use bevy::{animation::AnimationPlugin, app::{App, PanicHandlerPlugin, ScheduleRunnerPlugin, Startup, TaskPoolPlugin, Update}, asset::AssetPlugin, color::Color, core_pipeline::CorePipelinePlugin, diagnostic::{DiagnosticsPlugin, FrameCountPlugin}, gizmos::GizmoPlugin, log::LogPlugin, pbr::PbrPlugin, remote::{http::RemoteHttpPlugin, RemotePlugin}, render::{camera::ClearColor, settings::{PowerPreference, RenderCreation, WgpuSettings}, texture::ImagePlugin, RenderPlugin}, state::app::StatesPlugin, time::TimePlugin, transform::TransformPlugin, utils::default};
 
 use bevy::render::render_resource::TextureFormat;
+use bevy_gaussian_splatting::sort::SortMode;
 use bevy_gaussian_splatting::{
     random_gaussians_3d, CloudSettings, GaussianCamera, GaussianSplattingPlugin, PlanarGaussian3d, PlanarGaussian3dHandle
 };
@@ -48,9 +50,9 @@ impl Default for RotatingCamera {
     fn default() -> Self {
         Self {
             rotation_speed: 0.5, // About 1/4 rotation per second
-            radius: 50.0,        // Distance from center - even further for full view
+            radius: 80.0,        // Further distance for better overview
             center: Vec3::new(0.0, 0.0, 0.0),  // Center at origin
-            height: 20.0,        // Height above ground - looking down more
+            height: 30.0,        // Higher vantage point
             elapsed: 0.0,        // Starting time
         }
     }
@@ -100,7 +102,7 @@ fn main() {
                 ..default()
             }
         )
-        .add_plugins(ImagePlugin::default_nearest())
+        .add_plugins(ImagePlugin::default())
         .add_plugins(CorePipelinePlugin)
         .add_plugins(PbrPlugin::default())
         .add_plugins(AnimationPlugin)
@@ -221,11 +223,20 @@ fn setup(
     ));
 
 
-    let cloud = gaussian_assets.add(random_gaussians_3d(10_000));
+    // Generate many small gaussians for smooth, high quality rendering
+    let cloud = gaussian_assets.add(random_gaussians_3d(100_000));
     
     commands.spawn((
         PlanarGaussian3dHandle(cloud),
-        CloudSettings::default(),
+        CloudSettings {
+            aabb: false,
+            global_opacity: 1.0,
+            global_scale: 0.05,  // Very small scale for fine detail
+            opacity_adaptive_radius: true,  // Enable adaptive radius for better quality
+            visualize_bounding_box: false,  // Disable debug visualization
+            sort_mode: SortMode::default(),  // Use default sorting (usually Rayon for best quality)
+            ..CloudSettings::default()
+        },
     ));
 
     commands.spawn((
@@ -234,6 +245,7 @@ fn setup(
             target: render_target,
             ..default()
         },
+        Msaa::Off,  // Disable MSAA for proper gaussian splatting
         Tonemapping::None,
         Transform::from_xyz(-2.5, 4.5, 9.0).looking_at(Vec3::ZERO, Vec3::Y),
         RotatingCamera::default(),
