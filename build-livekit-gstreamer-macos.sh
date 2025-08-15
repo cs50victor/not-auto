@@ -4,7 +4,7 @@
 
 set -e
 
-echo "=== Building gst-plugins-rs with LiveKit support ==="
+echo "=== Building gst-plugins-rs with LiveKit support (RUN WITH SUDO) ==="
 
 brew install gst-plugins-rs
 

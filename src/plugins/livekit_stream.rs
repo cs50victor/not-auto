@@ -55,8 +55,8 @@ impl LiveKitConfig {
 #[derive(Resource)]
 pub struct LiveKitStreamer {
     _room: Arc<Room>,
-    video_track: LocalVideoTrack,
     frame_sender: Sender<Vec<u8>>,
+    _video_track: LocalVideoTrack,
     _runtime_handle: tokio::runtime::Handle,
     _frame_task: tokio::task::JoinHandle<()>,
 }
@@ -200,7 +200,7 @@ impl LiveKitStreamer {
         
         Ok(Self {
             _room: Arc::new(room),
-            video_track,
+            _video_track: video_track,
             frame_sender,
             _runtime_handle: tokio::runtime::Handle::current(),
             _frame_task: frame_task,

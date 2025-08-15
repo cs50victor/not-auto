@@ -1154,7 +1154,7 @@ dependencies = [
 [[package]]
 name = "bevy_gaussian_splatting"
 version = "5.0.6"
-source = "git+https://github.com/mosure/bevy_gaussian_splatting#a8f680699f52360870c8a15172e7d293e066193a"
+source = "git+https://github.com/cs50victor/bevy_gaussian_splatting?branch=feat%2Fmerge_and_update#a8f680699f52360870c8a15172e7d293e066193a"
 dependencies = [
  "base64 0.22.1",
  "bevy",

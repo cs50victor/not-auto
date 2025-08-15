@@ -21,6 +21,9 @@ use bevy::transform::components::Transform;
 use bevy::{animation::AnimationPlugin, app::{App, PanicHandlerPlugin, ScheduleRunnerPlugin, Startup, TaskPoolPlugin, Update}, asset::AssetPlugin, color::Color, core_pipeline::CorePipelinePlugin, diagnostic::{DiagnosticsPlugin, FrameCountPlugin}, gizmos::GizmoPlugin, log::LogPlugin, pbr::PbrPlugin, remote::{http::RemoteHttpPlugin, RemotePlugin}, render::{camera::ClearColor, settings::{PowerPreference, RenderCreation, WgpuSettings}, texture::ImagePlugin, RenderPlugin}, state::app::StatesPlugin, time::TimePlugin, transform::TransformPlugin, utils::default};
 
 use bevy::render::render_resource::TextureFormat;
+use bevy_gaussian_splatting::{
+    random_gaussians_3d, CloudSettings, GaussianCamera, GaussianSplattingPlugin, PlanarGaussian3d, PlanarGaussian3dHandle
+};
 use crate::plugins::capture_frame::{CaptureFramePlugin, ImageToSave, SceneController, SceneState};
 use crate::plugins::image_copy::{update_frame_data, FrameData, ImageCopyPlugin, ImageCopier};
 use crate::plugins::gstreamer_livekit::GStreamerLiveKitPlugin;
@@ -45,9 +48,9 @@ impl Default for RotatingCamera {
     fn default() -> Self {
         Self {
             rotation_speed: 0.5, // About 1/4 rotation per second
-            radius: 9.0,         // Distance from center
-            center: Vec3::ZERO,  // Center at origin
-            height: 4.5,         // Height above ground
+            radius: 50.0,        // Distance from center - even further for full view
+            center: Vec3::new(0.0, 0.0, 0.0),  // Center at origin
+            height: 20.0,        // Height above ground - looking down more
             elapsed: 0.0,        // Starting time
         }
     }
@@ -66,7 +69,6 @@ fn main() {
    
 
     App::new()
-        // .add_plugins(default_plugins)
         .add_plugins(PanicHandlerPlugin)
         .add_plugins(LogPlugin::default())
         .add_plugins(TaskPoolPlugin::default())
@@ -105,6 +107,7 @@ fn main() {
         .add_plugins(GizmoPlugin)
         .add_plugins(ImageCopyPlugin)
         .add_plugins(CaptureFramePlugin)
+        .add_plugins(GaussianSplattingPlugin)
         // Using GStreamer-based LiveKit streaming
         .add_plugins(GStreamerLiveKitPlugin::new(config.width, config.height))
         .add_plugins(RemotePlugin::default())
@@ -154,6 +157,7 @@ fn setup(
     mut images: ResMut<Assets<Image>>,
     mut scene_controller: ResMut<SceneController>,
     render_device: Res<RenderDevice>,
+    mut gaussian_assets: ResMut<Assets<PlanarGaussian3d>>,
 ){
     let pre_roll_frames = 40;
     let scene_name = "main_scene".into();
@@ -216,6 +220,14 @@ fn setup(
         Transform::from_xyz(4.0, 8.0, 4.0),
     ));
 
+
+    let cloud = gaussian_assets.add(random_gaussians_3d(10_000));
+    
+    commands.spawn((
+        PlanarGaussian3dHandle(cloud),
+        CloudSettings::default(),
+    ));
+
     commands.spawn((
         Camera3d::default(),
         Camera {
@@ -225,6 +237,8 @@ fn setup(
         Tonemapping::None,
         Transform::from_xyz(-2.5, 4.5, 9.0).looking_at(Vec3::ZERO, Vec3::Y),
         RotatingCamera::default(),
+        // Required for gaussian splatting rendering
+        GaussianCamera::default(),  
     ));
     
 }

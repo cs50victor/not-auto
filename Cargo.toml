@@ -42,7 +42,7 @@ livekit-protocol = { git = "https://github.com/livekit/rust-sdks.git", package =
 tokio = { version = "1.0", features = ["rt-multi-thread", "macros"] }
 async-channel = "2.0"
 reqwest = { version = "0.11", features = ["json", "rustls-tls"], default-features = false }
-bevy_gaussian_splatting = { git = "https://github.com/mosure/bevy_gaussian_splatting", version = "5.0.6" }
+bevy_gaussian_splatting = { git = "https://github.com/cs50victor/bevy_gaussian_splatting", version = "5.0.6", branch = "feat/merge_and_update" }
 
 gstreamer = "0.21.1"
 gstreamer-app = "0.21.1"
