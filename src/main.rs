@@ -29,6 +29,7 @@ use bevy_gaussian_splatting::{
 use crate::plugins::capture_frame::{CaptureFramePlugin, ImageToSave, SceneController, SceneState};
 use crate::plugins::image_copy::{update_frame_data, FrameData, ImageCopyPlugin, ImageCopier};
 use crate::plugins::gstreamer_livekit::GStreamerLiveKitPlugin;
+use crate::plugins::vggt_stream::{VGGTStreamPlugin, VGGTCamera};
 
 struct AppConfig {
     width: u32,
@@ -110,8 +111,8 @@ fn main() {
         .add_plugins(ImageCopyPlugin)
         .add_plugins(CaptureFramePlugin)
         .add_plugins(GaussianSplattingPlugin)
-        // Using GStreamer-based LiveKit streaming
         .add_plugins(GStreamerLiveKitPlugin::new(config.width, config.height))
+        .add_plugins(VGGTStreamPlugin::new())
         .add_plugins(RemotePlugin::default())
         // jsonrpc server
         .add_plugins(RemoteHttpPlugin::default().with_port(8080).with_headers(
@@ -250,7 +251,8 @@ fn setup(
         Transform::from_xyz(-2.5, 4.5, 9.0).looking_at(Vec3::ZERO, Vec3::Y),
         RotatingCamera::default(),
         // Required for gaussian splatting rendering
-        GaussianCamera::default(),  
+        GaussianCamera::default(),
+        VGGTCamera,
     ));
     
 }

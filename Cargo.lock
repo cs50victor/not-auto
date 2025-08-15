@@ -5111,6 +5111,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "mmap-sync"
+version = "2.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6b5de60c666589881936097a9a465af49b3155fab7bc59eea6d773be93c0a539"
+dependencies = [
+ "bytecheck",
+ "libc",
+ "memmap2",
+ "rkyv",
+ "thiserror 1.0.69",
+ "wyhash",
+]
+
+[[package]]
 name = "muldiv"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5325,9 +5339,11 @@ dependencies = [
  "livekit-api",
  "livekit-protocol",
  "log",
+ "mmap-sync",
  "openssl",
  "pretty_env_logger",
  "reqwest",
+ "rkyv",
  "serde",
  "serde_json",
  "shellexpand",
@@ -9483,6 +9499,15 @@ name = "writeable"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ea2f10b9bb0928dfb1b42b65e1f9e36f7f54dbdf08457afefb38afcdec4fa2bb"
+
+[[package]]
+name = "wyhash"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "baf6e163c25e3fac820b4b453185ea2dea3b6a3e0a721d4d23d75bd33734c295"
+dependencies = [
+ "rand_core 0.6.4",
+]
 
 [[package]]
 name = "wyz"

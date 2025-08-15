@@ -48,3 +48,5 @@ gstreamer = "0.21.1"
 gstreamer-app = "0.21.1"
 gstreamer-video = "0.21.1"
 gstreamer-webrtc = "0.21.1"
+mmap-sync = "2.0"
+rkyv = { version = "0.7", features = ["validation", "strict"] }
