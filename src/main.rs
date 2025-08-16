@@ -196,7 +196,6 @@ fn setup(
     render_device: Res<RenderDevice>,
     mut gaussian_assets: ResMut<Assets<PlanarGaussian3d>>,
 ){
-    info!("Setting up scene...");
     let pre_roll_frames = 40;
     let scene_name = "main_scene".into();
     

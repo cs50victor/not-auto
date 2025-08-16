@@ -19,7 +19,7 @@ load_dotenv('.env.local', override=True)
 api_key = os.environ["LIVEKIT_API_KEY"]
 api_secret = os.environ["LIVEKIT_API_SECRET"]
 livekit_url = os.environ["LIVEKIT_URL"]
-room_name = os.environ.get("LIVEKIT_ROOM_NAME", "bevy_render_room")
+room_name = os.environ.get("LIVEKIT_ROOM_NAME", "bevy_spatial_room")
 
 if not api_key or not api_secret:
     print("Error: LIVEKIT_API_KEY and LIVEKIT_API_SECRET must be set in .env.local")
