@@ -36,7 +36,7 @@ jobs:
           enable-sccache: "true"
 
       - name: Install Gstreamer
-        run: sudo brew install gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad gst-plugins-ugly gst-libav gst-rtsp-server gst-editing-services
+        run: brew install gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad gst-plugins-ugly gst-libav gst-rtsp-server gst-editing-services
         
       - name: Install Gstreamer livekit plugin
         run: sudo sh build-livekit-gstreamer-macos.sh

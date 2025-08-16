@@ -165,7 +165,7 @@ fn main() {
             config.width,
             config.height,
         ))
-        .insert_resource(ClearColor(Color::srgb_u8(0, 0, 0)))
+        .insert_resource(ClearColor(Color::srgb_u8(30, 30, 40)))
         .init_resource::<SceneController>()
         .add_systems(Startup, setup)
         .add_systems(Update, (update_frame_data, rotate_camera))
@@ -196,6 +196,7 @@ fn setup(
     render_device: Res<RenderDevice>,
     mut gaussian_assets: ResMut<Assets<PlanarGaussian3d>>,
 ){
+    info!("Setting up scene...");
     let pre_roll_frames = 40;
     let scene_name = "main_scene".into();
     
@@ -253,7 +254,11 @@ fn setup(
     
     // light
     commands.spawn((
-        PointLight { shadows_enabled: true, ..default() },
+        PointLight { 
+            intensity: 5000.0,
+            shadows_enabled: true, 
+            ..default() 
+        },
         Transform::from_xyz(4.0, 8.0, 4.0),
     ));
 
@@ -264,8 +269,8 @@ fn setup(
         CloudSettings {
             aabb: false,
             global_opacity: 1.0,
-            // Very small scale for fine detail
-            global_scale: 0.05,  
+            // Larger scale for visibility
+            global_scale: 1.0,  
             sort_mode: SortMode::default(),
             ..CloudSettings::default()
         },
@@ -279,7 +284,7 @@ fn setup(
         },
         Msaa::Off, 
         Tonemapping::None,
-        Transform::from_xyz(-2.5, 4.5, 9.0).looking_at(Vec3::ZERO, Vec3::Y),
+        Transform::from_xyz(5.0, 5.0, 5.0).looking_at(Vec3::ZERO, Vec3::Y),
         RotatingCamera::default(),
         // Required for gaussian splatting rendering
         GaussianCamera::default(),
