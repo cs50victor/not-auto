@@ -60,6 +60,35 @@ impl Default for RotatingCamera {
 
 
 fn main() {
+    #[cfg(target_os = "linux")]
+    {
+        // Check Vulkan availability on Linux
+        println!("Checking Vulkan support...");
+        match wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::VULKAN,
+            ..Default::default()
+        }).enumerate_adapters(wgpu::Backends::VULKAN).next() {
+            Some(adapter) => {
+                let info = adapter.get_info();
+                println!("✓ Vulkan is working!");
+                println!("  Backend: {:?}", info.backend);
+                println!("  Device: {}", info.name);
+                println!("  Device Type: {:?}", info.device_type);
+                println!("  Driver: {}", info.driver);
+            }
+            None => {
+                eprintln!("✗ Vulkan backend not available!");
+                eprintln!("  Make sure Vulkan drivers are installed and WGPU_BACKEND=vulkan is set");
+                std::process::exit(1);
+            }
+        }
+        
+        loop {
+            println!("hello world");
+            std::thread::sleep(std::time::Duration::from_secs(5));
+        }
+    }
+    
     dotenvy::from_filename_override(".env.local").ok();    
     
     let config = AppConfig {
@@ -70,7 +99,8 @@ fn main() {
     };
    
 
-    App::new()
+    let mut app = App::new();
+    app
         .add_plugins(PanicHandlerPlugin)
         .add_plugins(LogPlugin::default())
         .add_plugins(TaskPoolPlugin::default())
@@ -110,9 +140,14 @@ fn main() {
         .add_plugins(ImageCopyPlugin)
         .add_plugins(CaptureFramePlugin)
         .add_plugins(GaussianSplattingPlugin)
-        .add_plugins(GStreamerLiveKitPlugin::new(config.width, config.height))
-        // .add_plugins(VGGTStreamPlugin::new())
-        .add_plugins(RemotePlugin::default())
+        .add_plugins(GStreamerLiveKitPlugin::new(config.width, config.height));
+        
+        // #[cfg(has_cuda)]
+        // {
+        //     app = app.add_plugins(crate::plugins::dit_vggt_stream::VGGTStreamPlugin::new());
+        // }
+        
+        app.add_plugins(RemotePlugin::default())
         // jsonrpc server
         .add_plugins(RemoteHttpPlugin::default().with_port(8080).with_headers(
             bevy::remote::http::Headers::new()

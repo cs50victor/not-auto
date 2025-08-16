@@ -105,9 +105,9 @@ impl GStreamerLiveKitConfig {
             room_name: std::env::var("LIVEKIT_ROOM_NAME")
                 .unwrap_or_else(|_| "bevy_render_room".to_string()),
             participant_identity: std::env::var("LIVEKIT_PARTICIPANT_IDENTITY")
-                .unwrap_or_else(|_| "bevy_renderer".to_string()),
+                .unwrap_or_else(|_| "bevy_spatial".to_string()),
             participant_name: std::env::var("LIVEKIT_PARTICIPANT_NAME")
-                .unwrap_or_else(|_| "not-auto-renderer".to_string()),
+                .unwrap_or_else(|_| "bevy_spatial_renderer".to_string()),
             width,
             height,
         })

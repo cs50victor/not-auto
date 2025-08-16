@@ -6,8 +6,6 @@ set -e
 
 echo "=== Building gst-plugins-rs with LiveKit support (RUN WITH SUDO) ==="
 
-brew install gst-plugins-rs
-
 BUILD_DIR="/tmp/gst-plugins-rs-build"
 mkdir -p "$BUILD_DIR"
 cd "$BUILD_DIR"

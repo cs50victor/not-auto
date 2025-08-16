@@ -1,5 +1,12 @@
+[env]
+LIBTORCH_USE_PYTORCH = { value = "1", force = true }
+
+
 [target.x86_64-apple-darwin]
 rustflags = ["-C", "link-arg=-ObjC"]
 
 [target.aarch64-apple-darwin]
-rustflags = ["-C", "link-arg=-ObjC"]
+rustflags = [
+    "-C", "link-arg=-ObjC",
+    "-C", "link-arg=-Wl,-rpath,/opt/homebrew/lib"
+]

@@ -1,16 +1,15 @@
 [package]
-name = "not-auto"
+name = "bevy_spatial"
 version = "0.0.1"
 edition = "2024"
 rust-version = "1.85.0"
-
 
 [dependencies]
 anyhow = "1.0.75"
 bevy = { default-features = false, version = "0.16.0", features = [
     "bevy_asset",
     "bevy_animation",
-    # "bevy_audio",
+    "bevy_audio",
     "bevy_core_pipeline",
     "bevy_gizmos",
     # "bevy_gltf",
@@ -33,7 +32,7 @@ log = "0.4.20"
 pretty_env_logger = "0.5.0"
 openssl = { version = "0.10.63", features = ["vendored"] }
 serde = { version = "1.0.192", features = ["derive"] }
-serde_json = "1.0.108"
+serde_json = "1.0.140"
 avian3d = "0.3.0"
 dotenvy = "0.15.7"
 livekit = { git = "https://github.com/livekit/rust-sdks.git", package = "livekit", features = ["native-tls"] }
@@ -50,3 +49,15 @@ gstreamer-video = "0.21.1"
 gstreamer-webrtc = "0.21.1"
 mmap-sync = "2.0"
 rkyv = { version = "0.7", features = ["validation", "strict"] }
+chrono = "0.4.41"
+nalgebra = "0.33.2"
+ndarray = { version = "=0.16", features = ["serde", "rayon", "matrixmultiply-threading"] }
+ply-rs = "0.1.3"
+serde-pickle = "1.2.0"
+byteorder = "1.5"
+image = { version = "0.24", features = ["png"] }
+serde_yaml = "0.9.34"
+ndarray-npy = { version = "=0.9.1", features = ["npz"] }
+libc = "0.2.174"
+# tch = "=0.14.0"
+# torch-sys = "=0.14.0"

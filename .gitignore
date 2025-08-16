@@ -2,3 +2,4 @@
 .env*
 test_*.png
 .DS_Store
+*.mp4
