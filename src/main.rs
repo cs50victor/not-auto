@@ -29,7 +29,6 @@ use bevy_gaussian_splatting::{
 use crate::plugins::capture_frame::{CaptureFramePlugin, ImageToSave, SceneController, SceneState};
 use crate::plugins::image_copy::{update_frame_data, FrameData, ImageCopyPlugin, ImageCopier};
 use crate::plugins::gstreamer_livekit::GStreamerLiveKitPlugin;
-use crate::plugins::vggt_stream::{VGGTStreamPlugin, VGGTCamera};
 
 struct AppConfig {
     width: u32,
@@ -112,7 +111,7 @@ fn main() {
         .add_plugins(CaptureFramePlugin)
         .add_plugins(GaussianSplattingPlugin)
         .add_plugins(GStreamerLiveKitPlugin::new(config.width, config.height))
-        .add_plugins(VGGTStreamPlugin::new())
+        // .add_plugins(VGGTStreamPlugin::new())
         .add_plugins(RemotePlugin::default())
         // jsonrpc server
         .add_plugins(RemoteHttpPlugin::default().with_port(8080).with_headers(
@@ -223,8 +222,6 @@ fn setup(
         Transform::from_xyz(4.0, 8.0, 4.0),
     ));
 
-
-    // Generate many small gaussians for smooth, high quality rendering
     let cloud = gaussian_assets.add(random_gaussians_3d(100_000));
     
     commands.spawn((
@@ -232,10 +229,9 @@ fn setup(
         CloudSettings {
             aabb: false,
             global_opacity: 1.0,
-            global_scale: 0.05,  // Very small scale for fine detail
-            opacity_adaptive_radius: true,  // Enable adaptive radius for better quality
-            visualize_bounding_box: false,  // Disable debug visualization
-            sort_mode: SortMode::default(),  // Use default sorting (usually Rayon for best quality)
+            // Very small scale for fine detail
+            global_scale: 0.05,  
+            sort_mode: SortMode::default(),
             ..CloudSettings::default()
         },
     ));
@@ -246,13 +242,13 @@ fn setup(
             target: render_target,
             ..default()
         },
-        Msaa::Off,  // Disable MSAA for proper gaussian splatting
+        Msaa::Off, 
         Tonemapping::None,
         Transform::from_xyz(-2.5, 4.5, 9.0).looking_at(Vec3::ZERO, Vec3::Y),
         RotatingCamera::default(),
         // Required for gaussian splatting rendering
         GaussianCamera::default(),
-        VGGTCamera,
+        // VGGTCamera,
     ));
     
 }

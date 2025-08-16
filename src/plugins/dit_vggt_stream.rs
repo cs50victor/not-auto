@@ -1,4 +1,5 @@
-// VGGT Stream Plugin - Real-time gaussian generation from image streams
+// WIP 
+// DiT-StreamVGGT Plugin - Real-time gaussian generation from image / DiT streams
 // Uses shared memory (mmap-sync) for zero-copy communication with Python StreamVGGT
 
 use bevy::{
@@ -10,7 +11,6 @@ use bevy::{
         system::{Commands, Local, Query, Res, ResMut},
     },
     log::{debug, error, info, warn},
-    prelude::Entity,
     render::camera::Camera,
     time::Time,
     transform::components::GlobalTransform,
@@ -36,10 +36,6 @@ use std::{
 
 use crate::plugins::image_copy::FrameData;
 
-// ============================================================================
-// Shared Memory Data Structures (rkyv serializable)
-// ============================================================================
-
 #[derive(Archive, Deserialize, Serialize, Debug, Clone)]
 #[archive(check_bytes)]
 pub struct SharedFrame {
@@ -48,7 +44,10 @@ pub struct SharedFrame {
     pub timestamp_ms: u64,
     pub camera_position: [f32; 3],
     pub camera_rotation: [f32; 4], // quaternion
+    pub camera_forward: [f32; 3],  // Camera forward direction
     pub frame_data: Vec<u8>,       // RGBA data
+    pub is_outpaint_request: bool, // Request outpainting for sparse area
+    pub outpaint_seed: i32,        // Fixed seed for consistent outpainting
 }
 
 #[derive(Archive, Deserialize, Serialize, Debug, Clone)]
@@ -85,26 +84,35 @@ pub struct ControlSignal {
 #[derive(Resource, Clone)]
 pub struct VGGTConfig {
     pub enabled: bool,
+    // Enable scene extension via outpainting
+    pub extend_scene: bool, 
     pub merge_distance_threshold: f32,
     pub confidence_threshold: f32,
     pub max_gaussians: usize,
-    pub frame_interval: u32, // Process every N frames
+    // Process every N frames
+    pub frame_interval: u32, 
+    // Minimum gaussian density to trigger outpainting
+    pub sparse_threshold: f32, 
     pub python_script_path: PathBuf,
     pub mmap_base_path: PathBuf,
     pub model_checkpoint: Option<PathBuf>,
+    pub replicate_api_token: Option<String>,
 }
 
 impl Default for VGGTConfig {
     fn default() -> Self {
         Self {
             enabled: true,
+            extend_scene: false,
             merge_distance_threshold: 0.01,
             confidence_threshold: 0.3,
             max_gaussians: 500_000,
             frame_interval: 30, // Process every 30 frames (2 FPS at 60 FPS)
+            sparse_threshold: 10.0, // Minimum gaussians per cubic unit
             python_script_path: PathBuf::from("src/plugins/vggt_worker.py"),
             mmap_base_path: PathBuf::from("/tmp/vggt"),
             model_checkpoint: None,
+            replicate_api_token: std::env::var("REPLICATE_API_TOKEN").ok(),
         }
     }
 }
@@ -126,7 +134,7 @@ struct PythonWorker {
 
 #[derive(Resource)]
 struct GaussianMerger {
-    spatial_index: HashMap<(i32, i32, i32), Vec<usize>>, // Grid-based spatial index
+    spatial_index: HashMap<(i32, i32, i32), Vec<usize>>, 
     grid_resolution: f32,
 }
 
@@ -136,6 +144,32 @@ impl GaussianMerger {
             spatial_index: HashMap::new(),
             grid_resolution,
         }
+    }
+    
+    fn count_gaussians_in_frustum(&self, camera_pos: &[f32; 3], camera_forward: &[f32; 3], gaussians: &[Gaussian3d], range: f32) -> usize {
+        // Simple frustum check - count gaussians in front of camera within range
+        let mut count = 0;
+        for gaussian in gaussians {
+            let pos = &gaussian.position_visibility.position;
+            let to_gaussian = [
+                pos[0] - camera_pos[0],
+                pos[1] - camera_pos[1],
+                pos[2] - camera_pos[2],
+            ];
+            
+            // Check if in front of camera (dot product > 0)
+            let dot = to_gaussian[0] * camera_forward[0] + 
+                      to_gaussian[1] * camera_forward[1] + 
+                      to_gaussian[2] * camera_forward[2];
+            
+            if dot > 0.0 {
+                let dist_sq = to_gaussian[0].powi(2) + to_gaussian[1].powi(2) + to_gaussian[2].powi(2);
+                if dist_sq < range * range {
+                    count += 1;
+                }
+            }
+        }
+        count
     }
 
     fn position_to_grid(&self, pos: &[f32; 3]) -> (i32, i32, i32) {
@@ -298,16 +332,8 @@ impl GaussianMerger {
     }
 }
 
-// ============================================================================
-// Components
-// ============================================================================
-
 #[derive(Component)]
 pub struct VGGTCamera;
-
-// ============================================================================
-// Plugin Implementation
-// ============================================================================
 
 pub struct VGGTStreamPlugin {
     config: VGGTConfig,
@@ -322,6 +348,11 @@ impl VGGTStreamPlugin {
     
     pub fn with_config(config: VGGTConfig) -> Self {
         Self { config }
+    }
+    
+    pub fn with_scene_extension(mut self, enabled: bool) -> Self {
+        self.config.extend_scene = enabled;
+        self
     }
 }
 
@@ -348,10 +379,6 @@ impl Plugin for VGGTStreamPlugin {
     }
 }
 
-// ============================================================================
-// Systems
-// ============================================================================
-
 fn setup_vggt_system(
     mut commands: Commands,
     config: Res<VGGTConfig>,
@@ -377,7 +404,6 @@ fn setup_vggt_system(
     
     commands.insert_resource(memory_sync);
     
-    // Launch Python worker
     launch_python_worker(&mut commands, &config);
 }
 
@@ -390,10 +416,15 @@ fn launch_python_worker(commands: &mut Commands, config: &VGGTConfig) {
         .env("VGGT_FRAME_PATH", config.mmap_base_path.join("frames"))
         .env("VGGT_GAUSSIAN_PATH", config.mmap_base_path.join("gaussians"))
         .env("VGGT_CONTROL_PATH", config.mmap_base_path.join("control"))
-        .env("VGGT_CONFIDENCE_THRESHOLD", config.confidence_threshold.to_string());
+        .env("VGGT_CONFIDENCE_THRESHOLD", config.confidence_threshold.to_string())
+        .env("VGGT_EXTEND_SCENE", config.extend_scene.to_string());
     
     if let Some(checkpoint) = &config.model_checkpoint {
         cmd.env("VGGT_MODEL_CHECKPOINT", checkpoint);
+    }
+    
+    if let Some(token) = &config.replicate_api_token {
+        cmd.env("REPLICATE_API_TOKEN", token);
     }
     
     match cmd.spawn() {
@@ -414,6 +445,9 @@ fn launch_python_worker(commands: &mut Commands, config: &VGGTConfig) {
 fn capture_and_send_frames(
     frame_data: Res<FrameData>,
     cameras: Query<(&Camera, &GlobalTransform), bevy::ecs::query::With<VGGTCamera>>,
+    gaussian_handles: Query<&PlanarGaussian3dHandle>,
+    gaussian_assets: Res<Assets<PlanarGaussian3d>>,
+    merger: Res<GaussianMerger>,
     memory_sync: Option<Res<VGGTMemorySync>>,
     config: Res<VGGTConfig>,
     mut frame_counter: Local<u32>,
@@ -441,19 +475,40 @@ fn capture_and_send_frames(
         return;
     }
     
-    // Get camera transform (if available)
-    let (camera_pos, camera_rot) = cameras
+    // Get camera transform and forward direction
+    let (camera_pos, camera_rot, camera_forward) = cameras
         .iter()
         .next()
         .map(|(_, transform)| {
             let pos = transform.translation();
             let rot = transform.rotation();
+            let forward = transform.forward();
             (
                 [pos.x, pos.y, pos.z],
                 [rot.x, rot.y, rot.z, rot.w],
+                [forward.x, forward.y, forward.z],
             )
         })
-        .unwrap_or(([0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0]));
+        .unwrap_or(([0.0, 0.0, 0.0], [0.0, 0.0, 0.0, 1.0], [0.0, 0.0, -1.0]));
+    
+    // Check gaussian density if scene extension is enabled
+    let mut is_sparse_area = false;
+    if config.extend_scene {
+        // Find existing gaussian cloud
+        for handle in gaussian_handles.iter() {
+            if let Some(cloud) = gaussian_assets.get(handle.0.id()) {
+                let gaussians: Vec<Gaussian3d> = cloud.to_interleaved();
+                let density = merger.count_gaussians_in_frustum(&camera_pos, &camera_forward, &gaussians, 20.0);
+                
+                if (density as f32) < config.sparse_threshold {
+                    is_sparse_area = true;
+                    info!("Sparse area detected: {} gaussians in frustum (threshold: {})", 
+                          density, config.sparse_threshold);
+                }
+                break;
+            }
+        }
+    }
     
     // Create shared frame
     let shared_frame = SharedFrame {
@@ -465,7 +520,10 @@ fn capture_and_send_frames(
             .as_millis() as u64,
         camera_position: camera_pos,
         camera_rotation: camera_rot,
+        camera_forward,
         frame_data: frame_bytes.to_vec(),
+        is_outpaint_request: is_sparse_area,
+        outpaint_seed: 101001, // Fixed seed for consistency
     };
     
     // Write to shared memory
@@ -487,7 +545,7 @@ fn capture_and_send_frames(
 
 fn receive_and_merge_gaussians(
     mut gaussian_assets: ResMut<Assets<PlanarGaussian3d>>,
-    gaussian_handles: Query<(Entity, &PlanarGaussian3dHandle)>,
+    gaussian_handles: Query<&PlanarGaussian3dHandle>,
     memory_sync: Option<Res<VGGTMemorySync>>,
     mut merger: ResMut<GaussianMerger>,
     config: Res<VGGTConfig>,
@@ -511,7 +569,6 @@ fn receive_and_merge_gaussians(
     
     // Read gaussian batch from shared memory
     let gaussian_batch = if let Ok(mut reader) = memory_sync.gaussian_reader.lock() {
-        // The unsafe is required for zero-copy deserialization
         match unsafe { reader.read::<SharedGaussianBatch>(false) } {
             Ok(result) => {
                 // ReadResult derefs to Archived<T>, need to deserialize
@@ -541,19 +598,16 @@ fn receive_and_merge_gaussians(
     *last_merge_time = current_time;
     
     // Find existing gaussian cloud to merge with
-    for (_entity, handle) in gaussian_handles.iter() {
+    for handle in gaussian_handles.iter() {
         if let Some(cloud) = gaussian_assets.get_mut(handle.0.id()) {
-            // Convert to Vec<Gaussian3d>
             let mut gaussians: Vec<Gaussian3d> = cloud.to_interleaved();
             
-            // Merge new gaussians
             gaussians = merger.merge_gaussians(gaussians, batch.clone(), &config);
             
-            // Convert back to PlanarGaussian3d
             *cloud = PlanarGaussian3d::from(gaussians);
             
             info!("Updated gaussian cloud with {} total gaussians", cloud.len());
-            break; // Only update first cloud for now
+            break; 
         }
     }
 }
@@ -567,7 +621,6 @@ fn monitor_python_worker(
 ) {
     let current_time = time.elapsed_secs_f64();
     if current_time - *check_interval < 5.0 {
-        // Check every 5 seconds
         return;
     }
     *check_interval = current_time;
@@ -579,10 +632,6 @@ fn monitor_python_worker(
         }
     }
 }
-
-// ============================================================================
-// Helper Functions
-// ============================================================================
 
 impl Drop for PythonWorker {
     fn drop(&mut self) {

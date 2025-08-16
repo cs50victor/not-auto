@@ -8,12 +8,15 @@
 #     "mmap-sync",
 #     "scikit-learn",
 #     "huggingface_hub",
+#     "replicate",
+#     "Pillow",
 # ]
 # ///
 
 """
 VGGT Worker - Python process for real-time gaussian generation using StreamVGGT
 Communicates with Rust via shared memory (mmap-sync)
+WIP
 """
 
 import os
@@ -53,7 +56,10 @@ class SharedFrame:
     timestamp_ms: int
     camera_position: Tuple[float, float, float]
     camera_rotation: Tuple[float, float, float, float]
+    camera_forward: Tuple[float, float, float]
     frame_data: np.ndarray
+    is_outpaint_request: bool
+    outpaint_seed: int
 
 @dataclass
 class SharedGaussian:
@@ -142,15 +148,113 @@ class MemorySync:
             logger.error(f"Failed to write gaussians: {e}")
 
 # ============================================================================
+# FLUX Fill Pro Outpainting Integration
+# ============================================================================
+
+class FluxOutpainter:
+    """Handles scene extension via FLUX Fill Pro outpainting"""
+    
+    def __init__(self, api_token: Optional[str] = None):
+        self.api_token = api_token or os.environ.get('REPLICATE_API_TOKEN')
+        self.enabled = bool(self.api_token)
+        
+        if self.enabled:
+            try:
+                import replicate
+                self.replicate = replicate
+                self.client = replicate.Client(api_token=self.api_token)
+                logger.info("FLUX Fill Pro outpainting enabled")
+            except ImportError:
+                logger.error("Replicate package not found. Installing...")
+                import subprocess
+                subprocess.check_call([sys.executable, "-m", "pip", "install", "replicate"])
+                import replicate
+                self.replicate = replicate
+                self.client = replicate.Client(api_token=self.api_token)
+        else:
+            logger.warning("FLUX Fill Pro disabled - no Replicate API token")
+    
+    def outpaint_image(self, image: np.ndarray, seed: int = 101001) -> Optional[np.ndarray]:
+        """
+        Outpaint image using FLUX Fill Pro
+        
+        Args:
+            image: Input image as numpy array (RGB)
+            seed: Random seed for consistent results
+            
+        Returns:
+            Outpainted image as numpy array or None if failed
+        """
+        if not self.enabled:
+            return None
+        
+        try:
+            from PIL import Image
+            import io
+            import base64
+            
+            pil_image = Image.fromarray(image.astype(np.uint8))
+            
+            buffer = io.BytesIO()
+            pil_image.save(buffer, format='PNG')
+            buffer.seek(0)
+            
+            # Run FLUX Fill Pro with zoom out 2x
+            logger.info(f"Running FLUX Fill Pro outpainting with seed {seed}")
+            
+            output = self.client.run(
+                "black-forest-labs/flux-fill-pro",
+                input={
+                    "seed": seed,
+                    "image": buffer,
+                    "steps": 50,
+                    "prompt": "realistic and temporal consistent, high quality scene extension",
+                    "guidance": 3,
+                    # Only zoom out 2x produces high quality
+                    "outpaint": "Zoom out 2x",  
+                    "output_format": "jpg",
+                    "safety_tolerance": 2,
+                    "prompt_upsampling": False
+                }
+            )
+            
+            # Get the output URL and download the image
+            if hasattr(output, 'url'):
+                import requests
+                response = requests.get(output.url())
+                outpainted_pil = Image.open(io.BytesIO(response.content))
+            else:
+                # Direct image data
+                outpainted_pil = Image.open(io.BytesIO(output.read()))
+            
+            # Convert back to numpy array
+            outpainted_array = np.array(outpainted_pil)
+            
+            # Ensure RGB format (remove alpha if present)
+            if outpainted_array.shape[2] == 4:
+                outpainted_array = outpainted_array[:, :, :3]
+            
+            logger.info(f"Outpainting successful: {outpainted_array.shape}")
+            return outpainted_array
+            
+        except Exception as e:
+            logger.error(f"Failed to outpaint image: {e}")
+            logger.error(traceback.format_exc())
+            return None
+
+# ============================================================================
 # StreamVGGT Integration
 # ============================================================================
 
 class VGGTProcessor:
     """Handles StreamVGGT model loading and inference"""
     
-    def __init__(self, checkpoint_path: Optional[str] = None):
+    def __init__(self, checkpoint_path: Optional[str] = None, outpainter: Optional[FluxOutpainter] = None):
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         logger.info(f"Using device: {self.device}")
+        
+        # Outpainter for scene extension
+        self.outpainter = outpainter
         
         # Try to import StreamVGGT
         try:
@@ -172,9 +276,12 @@ class VGGTProcessor:
         
         # Streaming state
         self.frame_buffer = []
+        # Buffer for outpainted images
+        self.outpainted_buffer = []  
         self.max_buffer_size = 5
         self.last_process_time = 0
-        self.min_process_interval = 0.5  # Process at most every 500ms
+        # Process at most every 500ms
+        self.min_process_interval = 0.5  
     
     def _load_model(self, checkpoint_path: Optional[str]):
         """Load StreamVGGT model"""
@@ -223,10 +330,31 @@ class VGGTProcessor:
             # Convert RGBA to RGB
             image = image[:, :, :3]
             
-            # Add to buffer
-            self.frame_buffer.append(image)
-            if len(self.frame_buffer) > self.max_buffer_size:
-                self.frame_buffer.pop(0)
+            # Handle outpaint request for scene extension
+            if frame.is_outpaint_request and self.outpainter and self.outpainter.enabled:
+                logger.info("Processing outpaint request for sparse area")
+                outpainted = self.outpainter.outpaint_image(image, frame.outpaint_seed)
+                
+                if outpainted is not None:
+                    # Use outpainted images for gaussian generation
+                    self.outpainted_buffer = [outpainted]
+                    # Also add original for context
+                    self.frame_buffer.append(image)
+                    
+                    # Process outpainted scene immediately
+                    gaussians = self._extract_gaussians_from_outpainted()
+                    if gaussians:
+                        self.last_process_time = current_time
+                        return SharedGaussianBatch(
+                            count=len(gaussians),
+                            timestamp_ms=frame.timestamp_ms,
+                            camera_position=frame.camera_position,
+                            gaussians=gaussians
+                        )
+            else:
+                self.frame_buffer.append(image)
+                if len(self.frame_buffer) > self.max_buffer_size:
+                    self.frame_buffer.pop(0)
             
             # Process buffer
             gaussians = self._extract_gaussians_from_buffer()
@@ -313,6 +441,79 @@ class VGGTProcessor:
             logger.error(f"Failed to extract gaussians: {e}")
             logger.error(traceback.format_exc())
             return []
+    
+    def _extract_gaussians_from_outpainted(self) -> List[SharedGaussian]:
+        """Extract gaussians from outpainted images with higher density"""
+        
+        if not self.outpainted_buffer:
+            return []
+        
+        try:
+            images = np.stack(self.outpainted_buffer)
+            
+            # Convert to tensor and preprocess
+            images_tensor = torch.from_numpy(images).float()
+            images_tensor = images_tensor.permute(0, 3, 1, 2)  # NHWC to NCHW
+            images_tensor = images_tensor.to(self.device)
+            
+            # Normalize
+            images_tensor = images_tensor / 255.0
+            
+            frames = []
+            for i in range(images_tensor.shape[0]):
+                frames.append({"img": images_tensor[i:i+1]})
+            
+            with torch.no_grad():
+                dtype = torch.bfloat16 if torch.cuda.get_device_capability()[0] >= 8 else torch.float16
+                with torch.cuda.amp.autocast(dtype=dtype):
+                    output = self.model.inference(frames)
+            
+            # Extract predictions with higher density for outpainted areas
+            gaussians = []
+            for res in output.ress:
+                pts3d = res['pts3d_in_other_view'].squeeze(0).cpu().numpy()
+                conf = res['conf'].squeeze(0).cpu().numpy()
+                
+                # Higher sampling rate for outpainted content
+                h, w = pts3d.shape[:2]
+                sample_rate = 50  # Denser sampling for new content
+                
+                for y in range(0, h, sample_rate):
+                    for x in range(0, w, sample_rate):
+                        if conf[y, x] > 0.2:  # Lower threshold for outpainted
+                            position = pts3d[y, x]
+                            
+                            # Generate random quaternion for rotation
+                            quat = np.random.randn(4)
+                            quat = quat / np.linalg.norm(quat)
+                            
+                            # Scale based on confidence
+                            scale_value = 0.015 * (2.0 - conf[y, x])
+                            
+                            # Sample color from the outpainted image
+                            img_y = min(y, self.outpainted_buffer[0].shape[0] - 1)
+                            img_x = min(x, self.outpainted_buffer[0].shape[1] - 1)
+                            color = self.outpainted_buffer[0][img_y, img_x] / 255.0
+                            
+                            gaussian = SharedGaussian(
+                                position=tuple(position),
+                                quaternion=tuple(quat),
+                                scale=(scale_value, scale_value, scale_value),
+                                opacity=float(0.9 * conf[y, x]),
+                                color=tuple(color),
+                                confidence=float(conf[y, x])
+                            )
+                            gaussians.append(gaussian)
+            
+            self.outpainted_buffer = []
+            
+            logger.info(f"Extracted {len(gaussians)} gaussians from outpainted scene")
+            return gaussians[:2000]  # Limit to 2000 gaussians for outpainted content
+            
+        except Exception as e:
+            logger.error(f"Failed to extract gaussians from outpainted: {e}")
+            logger.error(traceback.format_exc())
+            return []
 
 # ============================================================================
 # Fallback: Simple gaussian generator (when StreamVGGT unavailable)
@@ -390,9 +591,15 @@ class VGGTWorker:
         # Initialize components
         self.memory_sync = MemorySync(frame_path, gaussian_path, control_path)
         
+        # Initialize outpainter if scene extension is enabled
+        extend_scene = os.environ.get('VGGT_EXTEND_SCENE', 'false').lower() == 'true'
+        self.outpainter = None
+        if extend_scene:
+            self.outpainter = FluxOutpainter()
+        
         # Try to initialize VGGT processor, fall back to simple generator
         try:
-            self.processor = VGGTProcessor(checkpoint)
+            self.processor = VGGTProcessor(checkpoint, outpainter=self.outpainter)
         except Exception as e:
             logger.error(f"Failed to initialize VGGTProcessor: {e}")
             self.processor = SimpleGaussianGenerator()
